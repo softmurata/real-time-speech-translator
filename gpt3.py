@@ -1,12 +1,13 @@
 import openai
+from dotenv import load_dotenv
 
 """
 https://www.twilio.com/blog/openai-gpt-3-chatbot-python-twilio-sms
 """
 
+load_dotenv()
 
-
-APIKEY = "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"
+APIKEY = env.API_KEY
 openai.api_key = APIKEY
 
 completion = openai.Completion()
