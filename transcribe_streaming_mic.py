@@ -41,6 +41,12 @@ from google.cloud import speech_v1 as speech
 from google.cloud.speech_v1 import enums
 from google.cloud.speech_v1 import types
 from six.moves import queue
+
+import cv2
+import tensorflow as tf
+from tf_bodypix.api import download_model, load_model, BodyPixModelPaths
+
+
 # [END import_libraries]
 
 # Audio recording parameters
@@ -50,10 +56,22 @@ CHUNK = int(RATE / 10)  # 100ms
 # Instantiates a client
 translate_client = translate.Client()
 
-raw_input_data = 'listening...'
+raw_input_data = 'こんにちは'
 previous_raw_input_data = None
 translated_data = None
 
+bodypix_model = load_model(download_model(BodyPixModelPaths.MOBILENET_FLOAT_50_STRIDE_16))
+
+cap = cv2.VideoCapture(0)
+cap.set(3, 1200)
+cap.set(4, 1200)
+# cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+# cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+
+_, init_f = cap.read()
+width, height, _ = init_f.shape
+bg_img = cv2.resize(cv2.imread("bg.jpeg"), (height, width))
 
 class MicrophoneStream(object):
     """Opens a recording stream as a generator yielding the audio chunks."""
@@ -137,8 +155,6 @@ class MicrophoneStream(object):
 # [END audio_stream]
 
 def initial_video():
-
-    import cv2
     
     # Inital text translation
     text_translation()
@@ -147,20 +163,36 @@ def initial_video():
     threading.Thread(target=main).start()
 
     # Set camera device
-    camera = cv2.VideoCapture(0)
+    # camera = cv2.VideoCapture(0)
     # Set camera width
-    camera.set(3,1200)
+    # camera.set(3,1200)
     # Set camera height
-    camera.set(4,1200)
+    # camera.set(4,1200)
 
     # Set font
     fontpath = "Kanit-Regular.ttf"
-    font = ImageFont.truetype(fontpath, 32)
+    font = ImageFont.truetype(fontpath, 30)
+
+    jpfontpath = "meiryo.ttc"
+    jpfont = ImageFont.truetype(jpfontpath, 30)
 
     while True:
-        ret, frame = camera.read()
+        ret, frame = cap.read()
         if ret:
             if translated_data:
+
+                # prediction
+                result = bodypix_model.predict_single(frame)
+                mask = result.get_mask(threshold=0.5).numpy().astype(np.uint8)
+                masked_image = cv2.bitwise_and(frame, frame, mask=mask)
+
+                neg = np.add(mask, -1)
+                inverse = np.where(neg==-1, 1, neg).astype(np.uint8)
+                masked_bg = cv2.bitwise_and(bg_img, bg_img, mask=inverse)
+                final = cv2.add(masked_image, masked_bg)
+
+                frame = final
+
                 # Draw background of text
                 cv2.rectangle(frame, (0, 0), (1400, 40), (0,0,0), -1)
                 cv2.rectangle(frame, (70, 515), (1200, 545), (0,0,0), -1)                    
@@ -173,9 +205,9 @@ def initial_video():
                 draw = ImageDraw.Draw(img_pil)
 
                 # Write microphone input
-                draw.text((100, 505), "Microphone: " + raw_input_data, font=font, fill=(255,255,255,0))
+                draw.text((100, 505), "Microphone: " + raw_input_data, font=jpfont, fill=(255,255,255,0))
                 # Write Thai text
-                draw.text((75, 545),  "TH: " + translated_data['th'], font=font, fill=(255,255,255,0))
+                # draw.text((75, 545),  "TH: " + translated_data['th'], font=font, fill=(255,255,255,0))
                 # Write English text
                 draw.text((75, 585),  "EN: " + translated_data['en'], font=font, fill=(255,255,255,0))
                 # Write Deutsch text     
@@ -195,7 +227,7 @@ def initial_video():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    camera.release()
+    cap.release()
     cv2.destroyAllWindows()
 
 def text_translation(input_text="Hello"):
@@ -306,7 +338,7 @@ def main():
     # See http://g.co/cloud/speech/docs/languages
     # for a list of supported languages.
     # The language code you speak.
-    language_code = 'th-TH'  # a BCP-47 language tag
+    language_code = 'ja-JP'  # a BCP-47 language tag
 
     client = speech.SpeechClient()
     config = types.RecognitionConfig(
